@@ -1,0 +1,54 @@
+name: Build Pixel ARM64 APK
+on:
+  push:
+    paths:
+      - '.github/workflows/build-pixel-apk.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-arm64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NDK_VERSION: '28.2.13676358'
+      SHERPA_ONNX_VERSION: '1.13.3'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: android-actions/setup-android@v3
+      - name: Install Android NDK
+        run: sdkmanager "ndk;${NDK_VERSION}"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+      - run: bun install --frozen-lockfile
+      - name: Build installable ARM64 debug APK with offline ASR
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          TAURI_CONFIG: '{"build":{"devUrl":null}}'
+        run: |
+          bun run tauri android build --debug --target aarch64 --apk --features android-asr,android-e2e-bundled-frontend --config "$TAURI_CONFIG" --ci
+      - name: Validate and stage APK
+        run: |
+          set -euo pipefail
+          find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*debug.apk' -print -quit)"
+          test -n "$apk" && test -s "$apk"
+          mkdir -p output
+          cp "$apk" output/Verbatim-Pixel-arm64-debug.apk
+          sha256sum output/*.apk > output/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Verbatim-Pixel-arm64-APK
+          path: output/
+          if-no-files-found: error
+          retention-days: 30
