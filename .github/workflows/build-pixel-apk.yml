@@ -30,10 +30,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      - name: Install SDK and NDK packages
-        run: |
-          sdkmanager "--sdk_root=$ANDROID_SDK_ROOT" \
-            "platforms;android-36" "build-tools;$BUILD_TOOLS_VERSION" "ndk;$NDK_VERSION"
+      - uses: android-actions/setup-android@v3
+        with:
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-36 build-tools;${{ env.BUILD_TOOLS_VERSION }} ndk;${{ env.NDK_VERSION }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'src-tauri -> target'
