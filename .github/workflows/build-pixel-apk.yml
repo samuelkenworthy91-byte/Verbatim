@@ -30,13 +30,13 @@ jobs:
         with:
           workspaces: 'src-tauri -> target'
       - run: bun install --frozen-lockfile
-      - name: Build installable ARM64 debug APK with offline ASR
+      - name: Verify frontend build\n        run: bun run build\n      - name: Build installable ARM64 debug APK with offline ASR
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
           TAURI_CONFIG: '{"build":{"devUrl":null}}'
         run: |
-          bun run tauri android build --debug --target aarch64 --apk --features android-asr,android-e2e-bundled-frontend --config "$TAURI_CONFIG" --ci
+          bun run tauri android build --debug --target aarch64 --apk --features android-asr,android-e2e-bundled-frontend --config "$TAURI_CONFIG"
       - name: Validate and stage APK
         run: |
           set -euo pipefail
