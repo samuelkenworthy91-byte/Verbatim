@@ -1,18 +1,25 @@
 name: Build Pixel ARM64 APK
+
 on:
   push:
+    branches: [main]
     paths:
       - '.github/workflows/build-pixel-apk.yml'
   workflow_dispatch:
+
 permissions:
   contents: read
+
+env:
+  NDK_VERSION: '28.2.13676358'
+  SHERPA_ONNX_VERSION: '1.13.3'
+  BUILD_TOOLS_VERSION: '36.0.0'
+  APK_NAME: Verbatim-Android-ARM64-Latest.apk
+
 jobs:
   android-arm64:
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      NDK_VERSION: '28.2.13676358'
-      SHERPA_ONNX_VERSION: '1.13.3'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -23,32 +30,132 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      - uses: android-actions/setup-android@v3
-      - name: Install Android NDK
-        run: sdkmanager "ndk;${NDK_VERSION}"
+      - name: Install SDK and NDK packages
+        run: |
+          sdkmanager "--sdk_root=$ANDROID_SDK_ROOT" \
+            "platforms;android-36" "build-tools;$BUILD_TOOLS_VERSION" "ndk;$NDK_VERSION"
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'src-tauri -> target'
       - run: bun install --frozen-lockfile
-      - name: Verify frontend build\n        run: bun run build\n      - name: Build installable ARM64 debug APK with offline ASR
+      - name: Download official sherpa-onnx Android runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/sherpa-onnx-v${SHERPA_ONNX_VERSION}-android.tar.bz2"
+          extract_dir="$RUNNER_TEMP/sherpa-onnx-android"
+          curl --fail --location --retry 3 -o "$archive" "https://github.com/k2-fsa/sherpa-onnx/releases/download/v${SHERPA_ONNX_VERSION}/sherpa-onnx-v${SHERPA_ONNX_VERSION}-android.tar.bz2"
+          mkdir -p "$extract_dir"
+          tar -xjf "$archive" -C "$extract_dir"
+          lib_path="$(find "$extract_dir" -type f -path '*/arm64-v8a/*' -name 'libsherpa-onnx-c-api.so' -print -quit)"
+          if [[ -z "$lib_path" ]]; then
+            echo "Unable to find arm64-v8a libsherpa-onnx-c-api.so in official sherpa-onnx Android archive" >&2
+            exit 1
+          fi
+          echo "SHERPA_ONNX_ANDROID_ABI=arm64-v8a" >> "$GITHUB_ENV"
+          echo "SHERPA_ONNX_LIB_DIR=$(dirname "$lib_path")" >> "$GITHUB_ENV"
+      - name: Build debug APK (ARM64)
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
           ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          ANDROID_E2E_FEATURES: android-asr android-e2e-bundled-frontend
           TAURI_CONFIG: '{"build":{"devUrl":null}}'
         run: |
-          bun run tauri android build --debug --target aarch64 --apk --features android-asr,android-e2e-bundled-frontend --config "$TAURI_CONFIG"
-      - name: Validate and stage APK
+          bun run tauri android build --debug --target aarch64 --apk --features "$ANDROID_E2E_FEATURES" \
+            --config "$TAURI_CONFIG"
+      - name: Stage bundled frontend assets in debug APK
+        working-directory: src-tauri/gen/android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          ANDROID_E2E_FEATURES: android-asr android-e2e-bundled-frontend
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
+        shell: bash
         run: |
           set -euo pipefail
-          find src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print
-          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*debug.apk' -print -quit)"
-          test -n "$apk" && test -s "$apk"
+          assets_dir="app/src/main/assets"
+          gradle_file="app/build.gradle.kts"
+
+          test -f "../../../dist/index.html" || {
+            echo "::error::frontend build missing dist/index.html"
+            exit 1
+          }
+
+          # Tauri CLI regenerates this Gradle field with only android-asr for
+          # the final Rust task; patch the CI copy so the packaged library uses
+          # tauri/custom-protocol and loads the bundled assets directly.
+          grep -Fq 'features = "android-asr"' "$gradle_file" || {
+            echo "::error::expected generated Android Rust feature list not found in $gradle_file"
+            exit 1
+          }
+          perl -0pi -e 's/features = "android-asr"/features = "$ENV{ANDROID_E2E_FEATURES}"/' "$gradle_file"
+          grep -Fq "features = \"$ANDROID_E2E_FEATURES\"" "$gradle_file" || {
+            echo "::error::failed to enable bundled-frontend Rust feature for Android e2e debug APK"
+            exit 1
+          }
+
+          mkdir -p "$assets_dir"
+          cp -R ../../../dist/. "$assets_dir/"
+
+          bash ./gradlew :app:assembleUniversalDebug \
+            -PtargetList=aarch64 \
+            -ParchList=arm64 \
+            -PabiList=arm64-v8a
+      - name: Validate and stage signed APK
+        env:
+          LLVM_OBJDUMP: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump
+        run: |
+          set -euo pipefail
+          apk="src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk"
+          tools="$ANDROID_SDK_ROOT/build-tools/$BUILD_TOOLS_VERSION"
+          test -s "$apk"
+          "$tools/apksigner" verify --verbose --print-certs "$apk"
+          "$tools/zipalign" -c -P 16 4 "$apk"
+          "$tools/aapt" dump badging "$apk" > "$RUNNER_TEMP/apk-badging.txt"
+          cat "$RUNNER_TEMP/apk-badging.txt"
+          grep -Fx "native-code: 'arm64-v8a'" "$RUNNER_TEMP/apk-badging.txt"
+          "$tools/aapt" dump xmltree "$apk" AndroidManifest.xml > "$RUNNER_TEMP/apk-manifest.txt"
+          for item in RECORD_AUDIO SYSTEM_ALERT_WINDOW FOREGROUND_SERVICE_MICROPHONE FloatingBubbleService VerbatimAccessibilityService; do
+            grep -F "$item" "$RUNNER_TEMP/apk-manifest.txt"
+          done
+          unzip -Z1 "$apk" > "$RUNNER_TEMP/apk-entries.txt"
+          for entry in assets/index.html lib/arm64-v8a/libverbatim_app_lib.so lib/arm64-v8a/libsherpa-onnx-c-api.so lib/arm64-v8a/libonnxruntime.so; do
+            grep -Fx "$entry" "$RUNNER_TEMP/apk-entries.txt"
+          done
+          unzip -p "$apk" assets/tauri.conf.json | jq -e '(.build.devUrl // null) == null'
+          bun scripts/check-android-so-alignment.ts "$apk"
           mkdir -p output
-          cp "$apk" output/Verbatim-Pixel-arm64-debug.apk
-          sha256sum output/*.apk > output/SHA256SUMS.txt
+          cp "$apk" "output/$APK_NAME"
+          (cd output && sha256sum "$APK_NAME" > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
-          name: Verbatim-Pixel-arm64-APK
+          name: Verbatim-Android-ARM64
           path: output/
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    needs: android-arm64
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Verbatim-Android-ARM64
+      - name: Publish Android prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="android-arm64-$GITHUB_RUN_ID"
+          gh release create "$tag" "$APK_NAME" SHA256SUMS.txt \
+            --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title "Verbatim ARM64 Android build $GITHUB_RUN_NUMBER" \
+            --notes "Android ARM64 APK signed with the repository's debug key. Install an Android speech model and enable the on-device engine before using the floating bubble."
+          curl --fail --location --retry 5 --retry-all-errors \
+            "https://github.com/$GH_REPO/releases/download/$tag/$APK_NAME" \
+            --output "$RUNNER_TEMP/$APK_NAME"
+          cmp "$APK_NAME" "$RUNNER_TEMP/$APK_NAME"
