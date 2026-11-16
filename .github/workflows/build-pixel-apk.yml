@@ -9,7 +9,7 @@ permissions:
 jobs:
   android-arm64:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       NDK_VERSION: '28.2.13676358'
       SHERPA_ONNX_VERSION: '1.13.3'
