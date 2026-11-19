@@ -73,14 +73,28 @@ class VerbatimAccessibilityService : AccessibilityService() {
       return InsertResult.SENSITIVE
     }
 
+    val (updatedText, cursor) = mergeDictation(
+      target.text?.toString().orEmpty(),
+      text.toString(),
+      target.textSelectionStart,
+      target.textSelectionEnd,
+    )
     val args = Bundle().apply {
       putCharSequence(
         AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
-        text,
+        updatedText,
       )
     }
 
     return if (target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+      // SET_TEXT may select everything. Collapse the selection for the next dictation.
+      target.performAction(
+        AccessibilityNodeInfo.ACTION_SET_SELECTION,
+        Bundle().apply {
+          putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
+          putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
+        },
+      )
       InsertResult.INSERTED
     } else {
       InsertResult.FAILED
