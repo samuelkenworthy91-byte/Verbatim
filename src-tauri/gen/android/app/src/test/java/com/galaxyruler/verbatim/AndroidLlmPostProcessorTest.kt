@@ -46,6 +46,23 @@ class AndroidLlmPostProcessorTest {
   }
 
   @Test
+  fun rejectsTruncatedLongCleanupSoCallerKeepsRawTranscript() {
+    val source = (1..120).joinToString(" ") { "word$it" }
+    assertNull(AndroidLlmPostProcessor.normalizeModelOutput(source, source.substringBefore(" word60")))
+    assertNull(AndroidLlmPostProcessor.normalizeModelOutput(source, source.substringBefore(" word120")))
+    assertEquals(
+      source + ".",
+      AndroidLlmPostProcessor.normalizeModelOutput(source, source + "."),
+    )
+  }
+
+  @Test
+  fun rejectsRepeatedWordsCutShortByCleanup() {
+    val source = "hello world ".repeat(30).trim()
+    assertNull(AndroidLlmPostProcessor.normalizeModelOutput(source, "Hello world."))
+  }
+
+  @Test
   fun rejectsOutputsThatDropSourceTerms() {
     assertNull(
       AndroidLlmPostProcessor.normalizeModelOutput(
