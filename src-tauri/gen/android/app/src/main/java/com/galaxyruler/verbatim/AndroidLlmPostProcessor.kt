@@ -192,6 +192,16 @@ object AndroidLlmPostProcessor {
     if (cleaned.isBlank() || cleaned == input) {
       return null
     }
+    // A token-limited cleanup pass must never replace a complete long transcript
+    // with a shorter prefix. The caller falls back to the raw transcript.
+    val sourceTerms = normalizedTerms(input).filterNot(::ignoredSourceTerm)
+    val cleanedTerms = normalizedTerms(cleaned).filterNot(::ignoredSourceTerm)
+    if (sourceTerms.size > 8 && (
+      cleanedTerms.size * 10 < sourceTerms.size * 9 ||
+        sourceTerms.takeLast(5).any { it !in cleanedTerms }
+      )) {
+      return null
+    }
     if (isExcessivelyExpanded(input, cleaned)) {
       return null
     }
