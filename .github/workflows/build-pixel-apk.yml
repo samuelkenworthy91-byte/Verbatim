@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/build-pixel-apk.yml"
+      - "src-tauri/gen/android/app/src/main/java/**"
+      - "src-tauri/gen/android/app/src/test/java/**"
+      - "src-tauri/tauri.android.conf.json"
+      - "scripts/make-android-hotfix.py"
   workflow_dispatch:
 
 permissions:
