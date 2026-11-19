@@ -6,6 +6,7 @@ pub mod offline;
 pub mod streaming;
 pub mod vad;
 pub mod wer;
+pub mod whisper_segments;
 
 use std::path::{Path, PathBuf};
 
