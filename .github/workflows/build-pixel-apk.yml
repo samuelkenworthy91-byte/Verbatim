@@ -120,7 +120,7 @@ jobs:
         working-directory: src-tauri/gen/android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
-        run: bash ./gradlew :app:testUniversalDebugUnitTest --tests com.galaxyruler.verbatim.DictationInsertionTest
+        run: bash ./gradlew :app:testUniversalDebugUnitTest --tests com.galaxyruler.verbatim.DictationInsertionTest --tests com.galaxyruler.verbatim.AndroidLlmPostProcessorTest
       - name: Validate and stage signed APK
         env:
           LLVM_OBJDUMP: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump
