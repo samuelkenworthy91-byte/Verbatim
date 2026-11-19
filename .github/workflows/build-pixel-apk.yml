@@ -153,6 +153,15 @@ jobs:
           mkdir -p output
           cp "$apk" "output/$APK_NAME"
           (cd output && sha256sum "$APK_NAME" > SHA256SUMS.txt)
+      - name: Create small patch for installed build 11001
+        run: |
+          curl --fail --location --retry 3 \
+            "https://github.com/samuelkenworthy91-byte/Verbatim/releases/download/android-arm64-44525360095/Verbatim-Android-ARM64-Latest.apk" \
+            --output "$RUNNER_TEMP/Verbatim-base.apk"
+          echo "bcca23023db3d2c06dc36767dcbb1e92d4df53cec5bf78037fd425aa36b9c914  $RUNNER_TEMP/Verbatim-base.apk" | sha256sum -c -
+          python scripts/make-android-hotfix.py "$RUNNER_TEMP/Verbatim-base.apk" \
+            "output/$APK_NAME" output/Verbatim-11001-to-11002.vpatch
+          (cd output && sha256sum "$APK_NAME" Verbatim-11001-to-11002.vpatch > SHA256SUMS.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: Verbatim-Android-ARM64
@@ -177,7 +186,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="android-arm64-$GITHUB_RUN_ID"
-          gh release create "$tag" "$APK_NAME" SHA256SUMS.txt \
+          gh release create "$tag" "$APK_NAME" Verbatim-11001-to-11002.vpatch SHA256SUMS.txt \
             --target "$GITHUB_SHA" --prerelease --latest=false \
             --title "Verbatim ARM64 Android build $GITHUB_RUN_NUMBER" \
             --notes "Android ARM64 APK signed with the repository's debug key. Install an Android speech model and enable the on-device engine before using the floating bubble."
