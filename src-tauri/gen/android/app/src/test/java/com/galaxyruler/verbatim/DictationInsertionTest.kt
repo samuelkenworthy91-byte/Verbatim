@@ -5,6 +5,20 @@ import org.junit.Test
 
 class DictationInsertionTest {
   @Test
+  fun removesOnlyTheLeadingMessagePrefix() {
+    assertEquals("Hello there", stripLeadingMessage("Message Hello there"))
+    assertEquals("Hello there", stripLeadingMessage("message: Hello there"))
+    assertEquals("Hello there", stripLeadingMessage("  MESSAGE. Hello there"))
+    assertEquals("message me later", stripLeadingMessage("Message message me later"))
+    assertEquals("Send a message later", stripLeadingMessage("Send a message later"))
+    assertEquals("Messages arrived", stripLeadingMessage("Messages arrived"))
+    assertEquals("messenger", stripLeadingMessage("messenger"))
+    assertEquals("", stripLeadingMessage("Message."))
+    val longText = "a long transcript ".repeat(5000)
+    assertEquals(longText, stripLeadingMessage("Message " + longText))
+  }
+
+  @Test
   fun secondDictationPreservesFirstAndMovesCursorToEnd() {
     val first = mergeDictation("", "First message.", 0, 0)
     val second = mergeDictation(first.first, "Second message.", first.second, first.second)
