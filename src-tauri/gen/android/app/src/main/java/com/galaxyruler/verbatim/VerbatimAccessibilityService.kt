@@ -73,8 +73,10 @@ class VerbatimAccessibilityService : AccessibilityService() {
       return InsertResult.SENSITIVE
     }
 
+    // Some messaging fields expose their "Message" hint through node.text.
+    val existingText = if (target.isShowingHintText) "" else target.text?.toString().orEmpty()
     val (updatedText, cursor) = mergeDictation(
-      target.text?.toString().orEmpty(),
+      existingText,
       text.toString(),
       target.textSelectionStart,
       target.textSelectionEnd,
