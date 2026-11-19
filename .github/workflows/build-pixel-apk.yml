@@ -4,16 +4,16 @@ on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/build-pixel-apk.yml'
+      - ".github/workflows/build-pixel-apk.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  NDK_VERSION: '28.2.13676358'
-  SHERPA_ONNX_VERSION: '1.13.3'
-  BUILD_TOOLS_VERSION: '36.0.0'
+  NDK_VERSION: "28.2.13676358"
+  SHERPA_ONNX_VERSION: "1.13.3"
+  BUILD_TOOLS_VERSION: "36.0.0"
   APK_NAME: Verbatim-Android-ARM64-Latest.apk
 
 jobs:
@@ -25,19 +25,27 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: "21"
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+          components: rustfmt, clippy
       - uses: android-actions/setup-android@v3
         with:
           log-accepted-android-sdk-licenses: false
           packages: platform-tools platforms;android-36 build-tools;${{ env.BUILD_TOOLS_VERSION }} ndk;${{ env.NDK_VERSION }}
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: 'src-tauri -> target'
+          workspaces: "src-tauri -> target"
       - run: bun install --frozen-lockfile
+      - name: Check regression tests and Rust formatting
+        run: |
+          rustfmt --edition 2021 --check src-tauri/src/asr/whisper_segments.rs src-tauri/src/commands/asr.rs
+          rustc --edition 2021 --test src-tauri/src/asr/whisper_segments.rs -o "$RUNNER_TEMP/whisper-segment-tests"
+          "$RUNNER_TEMP/whisper-segment-tests"
+          bun run lint
+
       - name: Download official sherpa-onnx Android runtime
         shell: bash
         run: |
@@ -101,6 +109,18 @@ jobs:
             -PtargetList=aarch64 \
             -ParchList=arm64 \
             -PabiList=arm64-v8a
+      - name: Check Android Rust code
+        working-directory: src-tauri
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang
+          TAURI_CONFIG: '{"build":{"devUrl":null}}'
+        run: cargo clippy --lib --target aarch64-linux-android --features android-asr,android-e2e-bundled-frontend
+      - name: Test Android text insertion
+        working-directory: src-tauri/gen/android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}
+        run: bash ./gradlew :app:testUniversalDebugUnitTest --tests com.galaxyruler.verbatim.DictationInsertionTest
       - name: Validate and stage signed APK
         env:
           LLVM_OBJDUMP: ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.NDK_VERSION }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-objdump
