@@ -949,7 +949,12 @@ class FloatingBubbleService : Service() {
   }
 
   private fun insertRecognizedText(text: String, rawText: String) {
-    insertOrRecover(applyNativeTextFormatter(text), rawText)
+    val formattedText = stripLeadingMessage(applyNativeTextFormatter(text))
+    if (formattedText.isBlank()) {
+      showFailure(R.string.bubble_listen_failed, null)
+      return
+    }
+    insertOrRecover(formattedText, rawText)
   }
 
   private fun startLlmCleanupIfReady(rawText: String): Boolean {
