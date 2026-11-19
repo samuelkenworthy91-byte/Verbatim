@@ -22,3 +22,12 @@ internal fun mergeDictation(
   val insertion = before + dictated
   return (prefix + insertion + after + suffix) to (prefix.length + insertion.length + after.length)
 }
+
+private val leadingMessage = Regex(
+  """^\s*message(?=$|[\s:,.!?—–-])[\s:,.!?—–-]*""",
+  RegexOption.IGNORE_CASE,
+)
+
+/** Remove the unwanted dictation prefix once, including its separator. */
+internal fun stripLeadingMessage(text: String): String =
+  text.replaceFirst(leadingMessage, "")
