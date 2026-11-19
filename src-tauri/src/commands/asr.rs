@@ -202,7 +202,19 @@ impl AsrCommandSession {
             AsrCommandSessionMode::ZipformerWhisper {
                 streaming, offline, ..
             } => {
-                let mut text = offline.transcribe(SAMPLE_RATE, &self.buffered_samples)?;
+                // sherpa-onnx Whisper discards audio beyond its 30-second window.
+                // Decode every segment and join them before emitting the final result.
+                let mut transcripts = Vec::new();
+                for range in crate::asr::whisper_segments::segment_ranges(
+                    &self.buffered_samples,
+                    SAMPLE_RATE as usize,
+                ) {
+                    let segment = offline.transcribe(SAMPLE_RATE, &self.buffered_samples[range])?;
+                    if !segment.trim().is_empty() {
+                        transcripts.push(segment.trim().to_string());
+                    }
+                }
+                let mut text = transcripts.join(" ");
                 if text.trim().is_empty() {
                     text = streaming.finish()?;
                 }
